@@ -12,29 +12,49 @@ const { default: mongoose } = require("mongoose");
 
 //GET
 //api/seller/orders
-const getOrderDetails = expressAsyncHandler(async(req, res)=>{
-    console.log("user: ", req.user._id);
+const getOrderDetails = expressAsyncHandler(async (req, res) => {
+    try {
+        console.log("user: ", req.user._id);
 
-    const customer = await customerModel.findOne({ customerUser: req.user._id });
-    console.log("customer: ", customer)
-    
-    const sellerId = await sellerModel.findOne({sellerUser: req.user._id})
-    
-    const order = await OrderModel.find({"products.productId": {$exists: true}})
-    .populate({
-        path: "products.productId",
-        match: {seller: sellerId._id},
-        select: "name price inStock",
-    })
-    
+        // Find the seller based on the logged-in user
+        const seller = await sellerModel.findOne({ sellerUser: req.user._id });
+        if (!seller) {
+            return res.status(404).json({ msg: "Seller not found" });
+        }
 
-    if(!order){
-        return res.status(404).json({msg: "orders does not exist"})
+        console.log("sellerId: ", seller._id);
+
+        // Fetch orders and populate products with `seller` field
+        const orders = await OrderModel.find({ "products.productId": { $exists: true } })
+            .populate({
+                path: "products.productId",
+                select: "name price inStock seller",  // Ensure `seller` is included in the populated fields
+            });
+
+        console.log("Orders after population:", orders);
+
+        // Filter orders to include only those with products from this specific seller
+        const filteredOrders = orders.filter(order =>
+            order.products.some(product => 
+                product.productId &&  // Ensure productId is populated
+                product.productId.seller &&  // Ensure seller field exists
+                product.productId.seller.toString() === seller._id.toString()
+            )
+        );
+
+        if (filteredOrders.length === 0) {
+            return res.status(404).json({ msg: "No orders found for this seller's products" });
+        }
+
+        console.log("Filtered Orders: ", filteredOrders);
+        res.status(200).json({ msg: "Orders fetched successfully", orders: filteredOrders });
+    } catch (error) {
+        console.error("Error fetching orders: ", error);
+        res.status(500).json({ msg: "Server error" });
     }
-    //name and instock
-    console.log("order: ", order)
-    res.status(200).json({msg: "orders fetched Successfully", order})
-})
+});
+
+
 
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id)
 
